@@ -34,6 +34,22 @@
                       └────────────────────┘
 ```
 
+## 🔑 API 設置
+
+本項目需要以下免費 API Key 先可以正常運行：
+
+| API | 用途 | 申請連結 |
+|:----|:----|:-------|
+| **The Odds API** | 即時市場賠率 | https://the-odds-api.com/#get-access |
+| **26worldcup.cn** | 世界盃賽程/賽果 | https://www.26worldcup.cn → Register |
+
+將 Key 填入 `.env` 檔案（可複製 `.env.example`）：
+
+```bash
+cp .env.example .env
+# 然後編輯 .env 填入你的 API Key
+```
+
 ## 🚀 快速開始
 
 ```bash

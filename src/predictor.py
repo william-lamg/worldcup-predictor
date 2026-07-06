@@ -1,4 +1,12 @@
 from __future__ import annotations
+
+# ── Auto-load .env for API keys ──
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 """
 FIFA World Cup 2026 – Match Prediction Model
 =============================================
@@ -810,11 +818,16 @@ def predict_match(
 
 import urllib.request
 import json as _json
+import os
 
-_ODDS_API_KEY = "4372b7b6c959528805a7efa964d84c90"
+_ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 
-
-def fetch_wc_odds(api_key: str = _ODDS_API_KEY) -> list[dict]:
+def fetch_wc_odds(api_key: str = "") -> list[dict]:
+    if not api_key:
+        api_key = _ODDS_API_KEY or os.getenv("ODDS_API_KEY", "")
+    if not api_key:
+        print("⚠️  ODDS_API_KEY not set. Set it in .env or as environment variable.")
+        return []
     """
     Fetch all World Cup match odds from The Odds API.
     Returns list of dicts with home_team, away_team, h2h odds.
