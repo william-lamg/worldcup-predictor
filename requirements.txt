@@ -1,0 +1,19 @@
+# FIFA World Cup 2026 – Match Prediction Model
+# Install with: pip install -r requirements.txt
+
+# Core ML
+xgboost>=2.0.0
+scikit-learn>=1.4.0
+numpy>=1.26.0
+pandas>=2.1.0
+
+# Visualisation
+matplotlib>=3.8.0
+seaborn>=0.13.0          # optional: nicer stat plots
+
+# Data fetching
+requests>=2.31.0
+
+# Notebook support (optional – for Jupyter walkthroughs)
+jupyter>=1.0.0
+ipykernel>=6.0.0

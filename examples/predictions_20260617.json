@@ -1,0 +1,50 @@
+[
+  {
+    "home": "France",
+    "away": "Senegal",
+    "elo_home": 2312.0,
+    "elo_away": 2054.0,
+    "p_home": 0.448,
+    "p_draw": 0.234,
+    "p_away": 0.318,
+    "xg_home": 3.5,
+    "xg_away": 0.59,
+    "favorite": "France"
+  },
+  {
+    "home": "Iraq",
+    "away": "Norway",
+    "elo_home": 1835.0,
+    "elo_away": 2153.0,
+    "p_home": 0.071,
+    "p_draw": 0.326,
+    "p_away": 0.603,
+    "xg_home": 0.37,
+    "xg_away": 3.29,
+    "favorite": "Norway"
+  },
+  {
+    "home": "Argentina",
+    "away": "Algeria",
+    "elo_home": 2337.0,
+    "elo_away": 2016.0,
+    "p_home": 0.518,
+    "p_draw": 0.281,
+    "p_away": 0.202,
+    "xg_home": 3.5,
+    "xg_away": 0.94,
+    "favorite": "Argentina"
+  },
+  {
+    "home": "Austria",
+    "away": "Jordan",
+    "elo_home": 2034.0,
+    "elo_away": 1905.0,
+    "p_home": 0.421,
+    "p_draw": 0.28,
+    "p_away": 0.298,
+    "xg_home": 1.94,
+    "xg_away": 0.92,
+    "favorite": "Austria"
+  }
+]

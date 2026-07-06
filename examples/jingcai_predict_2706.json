@@ -1,0 +1,221 @@
+{
+  "updated": "2026-06-26 19:12",
+  "date": "27/06/2026",
+  "model": "v4.7 + 競彩SP層",
+  "picks": [
+    {
+      "match_no": "061",
+      "home": "Norway",
+      "away": "France",
+      "sp_odds": {
+        "home": 4.75,
+        "draw": 4.27,
+        "away": 1.46
+      },
+      "rangqiu_odds": {
+        "win": 2.33,
+        "draw": 3.4,
+        "lose": 2.46
+      },
+      "ensemble": {
+        "h": 0.204,
+        "d": 0.264,
+        "a": 0.532
+      },
+      "xg": {
+        "home": 0.93,
+        "away": 2.78
+      },
+      "re_du_mismatch": -10,
+      "recommendation": {
+        "spf": "胜",
+        "spf_odds": 4.75,
+        "rangqiu": "让胜@2.33",
+        "score": [
+          "0:2",
+          "1:2"
+        ],
+        "confidence": "🟡中",
+        "re_du": ""
+      },
+      "note": "挪威4分爭首名，法國6分已出線可能輪換"
+    },
+    {
+      "match_no": "062",
+      "home": "Senegal",
+      "away": "Iraq",
+      "sp_odds": {},
+      "rangqiu_odds": {
+        "win": 2.5,
+        "draw": 3.85,
+        "lose": 2.13
+      },
+      "ensemble": {
+        "h": 0.624,
+        "d": 0.269,
+        "a": 0.107
+      },
+      "xg": {
+        "home": 2.35,
+        "away": 0.34
+      },
+      "re_du_mismatch": null,
+      "recommendation": {
+        "spf": "胜",
+        "spf_odds": "—",
+        "rangqiu": "让负@2.13",
+        "score": [
+          "2:0",
+          "1:0"
+        ],
+        "confidence": "🟡中",
+        "re_du": ""
+      },
+      "note": "#15 vs #57，實力懸殊。讓2球太深"
+    },
+    {
+      "match_no": "063",
+      "home": "Cape Verde",
+      "away": "Saudi Arabia",
+      "sp_odds": {
+        "home": 2.4,
+        "draw": 3.05,
+        "away": 2.6
+      },
+      "rangqiu_odds": {
+        "win": 5.55,
+        "draw": 4.0,
+        "lose": 1.43
+      },
+      "ensemble": {
+        "h": 0.383,
+        "d": 0.325,
+        "a": 0.292
+      },
+      "xg": {
+        "home": 1.01,
+        "away": 0.75
+      },
+      "re_du_mismatch": 15,
+      "recommendation": {
+        "spf": "负",
+        "spf_odds": 2.6,
+        "rangqiu": "让负@1.43",
+        "score": [
+          "1:0",
+          "0:0"
+        ],
+        "confidence": "🔥冷",
+        "re_du": "⚠️大眾高估主隊+15%"
+      },
+      "note": "🔥讓負誤差-33%，大眾高估主隊"
+    },
+    {
+      "match_no": "064",
+      "home": "Uruguay",
+      "away": "Spain",
+      "sp_odds": {
+        "home": 6.85,
+        "draw": 4.22,
+        "away": 1.34
+      },
+      "rangqiu_odds": {
+        "win": 2.65,
+        "draw": 3.35,
+        "lose": 2.21
+      },
+      "ensemble": {
+        "h": 0.134,
+        "d": 0.238,
+        "a": 0.629
+      },
+      "xg": {
+        "home": 0.45,
+        "away": 2.74
+      },
+      "re_du_mismatch": 21,
+      "recommendation": {
+        "spf": "负",
+        "spf_odds": 1.34,
+        "rangqiu": "让负@2.21",
+        "score": [
+          "0:2",
+          "0:3"
+        ],
+        "confidence": "🟢高",
+        "re_du": "⚠️大眾高估主隊+21%"
+      },
+      "note": "🔥81%人砸西班牙！烏拉圭讓勝僅12%投票vs33%概率"
+    },
+    {
+      "match_no": "065",
+      "home": "Egypt",
+      "away": "Iran",
+      "sp_odds": {
+        "home": 2.26,
+        "draw": 2.5,
+        "away": 3.5
+      },
+      "rangqiu_odds": {
+        "win": 5.25,
+        "draw": 3.8,
+        "lose": 1.48
+      },
+      "ensemble": {
+        "h": 0.342,
+        "d": 0.336,
+        "a": 0.322
+      },
+      "xg": {
+        "home": 0.87,
+        "away": 2.19
+      },
+      "re_du_mismatch": 16,
+      "recommendation": {
+        "spf": "平",
+        "spf_odds": 2.5,
+        "rangqiu": "让负@1.48",
+        "score": [
+          "0:2",
+          "0:1"
+        ],
+        "confidence": "🔥冷",
+        "re_du": "⚠️大眾高估主隊+16%"
+      },
+      "note": "🔥讓負誤差-27%，伊朗防守反擊能力強"
+    },
+    {
+      "match_no": "066",
+      "home": "New Zealand",
+      "away": "Belgium",
+      "sp_odds": {},
+      "rangqiu_odds": {
+        "win": 2.58,
+        "draw": 3.95,
+        "lose": 2.05
+      },
+      "ensemble": {
+        "h": 0.105,
+        "d": 0.155,
+        "a": 0.741
+      },
+      "xg": {
+        "home": 0.42,
+        "away": 3.5
+      },
+      "re_du_mismatch": null,
+      "recommendation": {
+        "spf": "负",
+        "spf_odds": "—",
+        "rangqiu": "让负@2.05",
+        "score": [
+          "0:3",
+          "0:4"
+        ],
+        "confidence": "🟡中",
+        "re_du": ""
+      },
+      "note": "#85 vs #9，比利時爭頭名需刷淨勝球"
+    }
+  ]
+}

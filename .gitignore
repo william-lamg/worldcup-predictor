@@ -1,0 +1,43 @@
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ─── Binary models (too large for git) ───
+models/*.joblib
+models/*.pkl
+models/*.json
+
+# ─── Training data ───
+data/*.csv
+data/*.zip
+
+# ─── Visualisation output ───
+visuals/*.png
+visuals/*.html
+
+# ─── IDE ───
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── OS ───
+Thumbs.db
+.DS_Store
+
+# ─── Generated JSON outputs (keep sample in examples/) ───
+*.json
+!examples/*.json
+!requirements.txt
+
+# ─── Environment ───
+.env
+*.enc
+vault/
+
+# ─── Node ───
+node_modules/

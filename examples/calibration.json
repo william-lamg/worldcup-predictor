@@ -1,0 +1,54 @@
+[
+  {
+    "date": "2026-06-15",
+    "home": "Germany",
+    "away": "Curaçao",
+    "p_home": 0.8916,
+    "p_draw": 0.0693,
+    "p_away": 0.039,
+    "result_home": null,
+    "result_draw": null,
+    "result_away": null,
+    "home_score": null,
+    "away_score": null
+  },
+  {
+    "date": "2026-06-15",
+    "home": "Sweden",
+    "away": "Tunisia",
+    "p_home": 0.4261,
+    "p_draw": 0.2924,
+    "p_away": 0.2815,
+    "result_home": null,
+    "result_draw": null,
+    "result_away": null,
+    "home_score": null,
+    "away_score": null
+  },
+  {
+    "date": "2026-06-15",
+    "home": "Netherlands",
+    "away": "Japan",
+    "p_home": 0.417,
+    "p_draw": 0.3085,
+    "p_away": 0.2745,
+    "result_home": null,
+    "result_draw": null,
+    "result_away": null,
+    "home_score": null,
+    "away_score": null
+  },
+  {
+    "date": "2026-06-15",
+    "home": "Ivory Coast",
+    "away": "Ecuador",
+    "p_home": 0.2373,
+    "p_draw": 0.3037,
+    "p_away": 0.459,
+    "result_home": null,
+    "result_draw": null,
+    "result_away": null,
+    "home_score": null,
+    "away_score": null
+  }
+]

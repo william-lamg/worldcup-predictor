@@ -1,0 +1,78 @@
+[
+  {
+    "home": "France",
+    "away": "Senegal",
+    "old": {
+      "home_prob": 0.441,
+      "draw_prob": 0.306,
+      "away_prob": 0.253,
+      "xg_home": 3.5,
+      "xg_away": 0.57
+    },
+    "new": {
+      "home_prob": 0.66,
+      "draw_prob": 0.207,
+      "away_prob": 0.133,
+      "xg_home": 3.5,
+      "xg_away": 0.57
+    },
+    "has_market": true
+  },
+  {
+    "home": "Iraq",
+    "away": "Norway",
+    "old": {
+      "home_prob": 0.085,
+      "draw_prob": 0.231,
+      "away_prob": 0.684,
+      "xg_home": 0.36,
+      "xg_away": 3.5
+    },
+    "new": {
+      "home_prob": 0.088,
+      "draw_prob": 0.149,
+      "away_prob": 0.764,
+      "xg_home": 0.36,
+      "xg_away": 3.5
+    },
+    "has_market": true
+  },
+  {
+    "home": "Argentina",
+    "away": "Algeria",
+    "old": {
+      "home_prob": 0.517,
+      "draw_prob": 0.296,
+      "away_prob": 0.187,
+      "xg_home": 3.5,
+      "xg_away": 0.91
+    },
+    "new": {
+      "home_prob": 0.694,
+      "draw_prob": 0.192,
+      "away_prob": 0.115,
+      "xg_home": 3.5,
+      "xg_away": 0.91
+    },
+    "has_market": true
+  },
+  {
+    "home": "Austria",
+    "away": "Jordan",
+    "old": {
+      "home_prob": 0.424,
+      "draw_prob": 0.324,
+      "away_prob": 0.252,
+      "xg_home": 2.1,
+      "xg_away": 0.87
+    },
+    "new": {
+      "home_prob": 0.656,
+      "draw_prob": 0.224,
+      "away_prob": 0.119,
+      "xg_home": 2.1,
+      "xg_away": 0.87
+    },
+    "has_market": true
+  }
+]
