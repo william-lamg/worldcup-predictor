@@ -23,10 +23,10 @@ import joblib
 from zoneinfo import ZoneInfo
 
 HKT = ZoneInfo('Asia/Hong_Kong')
-BASE = Path(r'C:\Users\Kaius\.qclaw\workspace\skills\goaliq-world-cup-predictor\world-cup-2026-predictor-main')
+BASE = Path(__file__).resolve().parent.parent  # repo root
 DATA = BASE / 'data'
 MODELS = BASE / 'models'
-sys.path.insert(0, str(BASE))
+sys.path.insert(0, str(BASE / 'src'))
 from predictor import predict_ensemble, EloRatingSystem, build_features, predict_jingcai, format_jingcai_picks
 
 # ── Load artifacts ──
@@ -34,7 +34,11 @@ print("Loading model & Elo ...")
 model_path = MODELS / 'xgb_weighted.joblib'
 if not model_path.exists():
     model_path = MODELS / 'xgb_v2.joblib'
-model = joblib.load(model_path)
+if model_path.exists():
+    model = joblib.load(model_path)
+else:
+    print("⚠️  Model file not found. Run training pipeline first.")
+    model = None
 
 elo_path = MODELS / 'elo_v3.joblib'
 if not elo_path.exists():
@@ -42,9 +46,17 @@ if not elo_path.exists():
 if elo_path.exists():
     elo = joblib.load(elo_path)
 else:
+    print("⚠️  Elo file not found, using default EloRatingSystem()")
     elo = EloRatingSystem()
 
-feat_df = pd.read_csv(DATA / 'results.csv').dropna(subset=['home_score', 'away_score'])
+feat_csv = DATA / 'results.csv'
+if feat_csv.exists():
+    feat_df = pd.read_csv(feat_csv).dropna(subset=['home_score', 'away_score'])
+    feat_df['home_score'] = feat_df['home_score'].astype(int)
+    feat_df['away_score'] = feat_df['away_score'].astype(int)
+else:
+    print("⚠️  results.csv not found in data/")
+    feat_df = pd.DataFrame()
 feat_df['home_score'] = feat_df['home_score'].astype(int)
 feat_df['away_score'] = feat_df['away_score'].astype(int)
 full_feat = build_features(feat_df, elo)
@@ -213,7 +225,7 @@ def main():
         "updated": now_str,
         "picks": picks,
     }
-    out_path = Path(r'C:\Users\Kaius\.qclaw\workspace') / 'daily_prediction_data.json'
+    out_path = BASE / 'examples' / 'daily_prediction_data.json'
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     print(f"\n✅ 已保存至 {out_path}")

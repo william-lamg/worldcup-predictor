@@ -20,7 +20,7 @@
 
 ## 郵件推送
 - HTML格式含6場卡牌（SP/讓球/概率/xG/推薦/冷熱/比分）
-- 已成功發送至 lamzhongyan@126.com, maxcubes@yeah.net
+- 已成功通過 SMTP 發送至用戶郵箱
 
 ## 核心理念
 - The Odds API → Elo + XGBoost + 市場賠率 Ensemble（分析層）
