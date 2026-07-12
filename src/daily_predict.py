@@ -7,13 +7,6 @@ import sys, os, json, math, glob, re
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
-# ── Auto-load .env for API keys ──
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
 os.environ["MPLBACKEND"] = "Agg"
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -23,10 +16,10 @@ import joblib
 from zoneinfo import ZoneInfo
 
 HKT = ZoneInfo('Asia/Hong_Kong')
-BASE = Path(__file__).resolve().parent.parent  # repo root
+BASE = Path(r'C:\Users\Kaius\.qclaw\workspace\skills\goaliq-world-cup-predictor\world-cup-2026-predictor-main')
 DATA = BASE / 'data'
 MODELS = BASE / 'models'
-sys.path.insert(0, str(BASE / 'src'))
+sys.path.insert(0, str(BASE))
 from predictor import predict_ensemble, EloRatingSystem, build_features, predict_jingcai, format_jingcai_picks
 
 # ── Load artifacts ──
@@ -34,11 +27,7 @@ print("Loading model & Elo ...")
 model_path = MODELS / 'xgb_weighted.joblib'
 if not model_path.exists():
     model_path = MODELS / 'xgb_v2.joblib'
-if model_path.exists():
-    model = joblib.load(model_path)
-else:
-    print("⚠️  Model file not found. Run training pipeline first.")
-    model = None
+model = joblib.load(model_path)
 
 elo_path = MODELS / 'elo_v3.joblib'
 if not elo_path.exists():
@@ -46,17 +35,9 @@ if not elo_path.exists():
 if elo_path.exists():
     elo = joblib.load(elo_path)
 else:
-    print("⚠️  Elo file not found, using default EloRatingSystem()")
     elo = EloRatingSystem()
 
-feat_csv = DATA / 'results.csv'
-if feat_csv.exists():
-    feat_df = pd.read_csv(feat_csv).dropna(subset=['home_score', 'away_score'])
-    feat_df['home_score'] = feat_df['home_score'].astype(int)
-    feat_df['away_score'] = feat_df['away_score'].astype(int)
-else:
-    print("⚠️  results.csv not found in data/")
-    feat_df = pd.DataFrame()
+feat_df = pd.read_csv(DATA / 'results.csv').dropna(subset=['home_score', 'away_score'])
 feat_df['home_score'] = feat_df['home_score'].astype(int)
 feat_df['away_score'] = feat_df['away_score'].astype(int)
 full_feat = build_features(feat_df, elo)
@@ -76,13 +57,9 @@ def get_today_matches() -> list:
     """
     today_str = datetime.now(HKT).strftime("%Y-%m-%d")
     import urllib.request
-    wc26_key = os.getenv("WORLDCUP26_API_KEY", "")
-    if not wc26_key:
-        print("⚠️  WORLDCUP26_API_KEY not set, skipping 26worldcup.cn API")
-        raise Exception("No API key")
     api_url = f"https://www.26worldcup.cn/api/v1/cup/2026/schedule?date={today_str}"
     try:
-        req = urllib.request.Request(api_url, headers={"Api-Key": wc26_key})
+        req = urllib.request.Request(api_url, headers={"Api-Key": os.getenv("WORLDCUP26_API_KEY", "")})
         resp = json.loads(urllib.request.urlopen(req, timeout=10).read())
         matches_raw = resp.get("data", {}).get("matches", [])
         matches = []
@@ -114,11 +91,7 @@ def get_today_matches() -> list:
         print(f"⚠️ API获取失败: {e}，用 The Odds API 手动获取今日场次")
         # Fallback: use The Odds API
         try:
-            odds_api_key = os.getenv("ODDS_API_KEY", "")
-            if not odds_api_key:
-                print("⚠️  ODDS_API_KEY not set, skipping Odds API fallback")
-                raise Exception("No API key")
-            odds_url = f"https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey={odds_api_key}&regions=eu,us&markets=h2h&oddsFormat=decimal"
+            odds_url = "https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey=" + os.getenv("ODDS_API_KEY", "") + "&regions=eu,us&markets=h2h&oddsFormat=decimal"
             req = urllib.request.Request(odds_url, headers={"User-Agent": "Mozilla/5.0"})
             all_odds = json.loads(urllib.request.urlopen(req, timeout=10).read())
             # Filter for upcoming matches (commence_time in future)
@@ -225,7 +198,7 @@ def main():
         "updated": now_str,
         "picks": picks,
     }
-    out_path = BASE / 'examples' / 'daily_prediction_data.json'
+    out_path = Path(r'C:\Users\Kaius\.qclaw\workspace') / 'daily_prediction_data.json'
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     print(f"\n✅ 已保存至 {out_path}")

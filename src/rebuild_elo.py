@@ -3,18 +3,16 @@ Rebuild EloRatingSystem by feeding in all World Cup 2026 group stage results.
 Save as elo_v3.joblib and print Top 30 + key team comparison.
 """
 import sys, os
-from pathlib import Path
 os.environ["PYTHONIOENCODING"] = "utf-8"
 sys.stdout.reconfigure(encoding="utf-8")
 
-# Repo root = two levels up from src/rebuild_elo.py
-repo_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(repo_root / "src"))
+predictor_dir = r"C:\Users\Kaius\.qclaw\workspace\skills\goaliq-world-cup-predictor\world-cup-2026-predictor-main"
+sys.path.insert(0, predictor_dir)
 import joblib
 from predictor import EloRatingSystem
 
 # Load existing Elo v2
-elo_path = repo_root / "models" / "elo_v2.joblib"
+elo_path = os.path.join(predictor_dir, "models", "elo_v2.joblib")
 elo = joblib.load(elo_path)
 
 # ═══ Rename team aliases from historical data before feeding group-stage results ═══
@@ -220,7 +218,7 @@ print()
 # SAVE & REPORT
 # ═════════════════════════════════════════════════════
 
-out_path = repo_root / "models" / "elo_v3.joblib"
+out_path = os.path.join(predictor_dir, "models", "elo_v3.joblib")
 joblib.dump(elo, out_path)
 print(f"✅ Saved: elo_v3.joblib\n")
 

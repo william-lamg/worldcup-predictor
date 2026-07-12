@@ -1,12 +1,4 @@
 from __future__ import annotations
-
-# ── Auto-load .env for API keys ──
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
 """
 FIFA World Cup 2026 – Match Prediction Model
 =============================================
@@ -27,6 +19,7 @@ Usage:
 """
 
 import argparse
+import os
 import json
 import math
 import warnings
@@ -327,6 +320,16 @@ def match_probs_from_xg(xg_home: float, xg_away: float, max_goals: int = 15) -> 
     sorted_scores = sorted(score_probs.items(), key=lambda x: -x[1])[:5]
     correct_score = [(s, round(p / total, 4)) for s, p in sorted_scores]
 
+    # ── P0-2: BTTS hard upper bound ──
+    # P(both teams score) can NEVER exceed P(weaker team scores ≥1),
+    # which for a Poisson(λ) attack is 1 - e^(-λ). When one side's xG is
+    # structurally low (<0.5) the raw Poisson BTTS figure is massively
+    # overstated (e.g. xG 0.14 → true BTTS ceiling ≈ 13%, not 66%).
+    min_xg = min(xg_home, xg_away)
+    btts_cap = 1.0 - math.exp(-max(0.0, min_xg))
+    if btts_yes > btts_cap:
+        btts_yes = btts_cap
+
     return {
         "home_win":       round(home_wins, 4),
         "draw":           round(draws, 4),
@@ -343,6 +346,84 @@ def match_probs_from_xg(xg_home: float, xg_away: float, max_goals: int = 15) -> 
         "ah_away_025":    round(cum_diff_under(-0.25), 4),
         "ah_away_075":    round(cum_diff_under(-0.75), 4),
         "correct_score":  correct_score,
+    }
+
+
+def simulate_knockout_progression(
+    p_home_90: float, p_draw_90: float, p_away_90: float,
+    xg_home: float, xg_away: float,
+    elo_h: float, elo_a: float,
+    elo: "EloRatingSystem | None" = None,
+) -> dict:
+    """
+    P0-1 fix — model full knockout progression: 90min → ET → PK.
+
+    The base ensemble outputs 90-MINUTE probabilities only. In knockout
+    football a 90-min draw does NOT end the match — it goes to extra time
+    (30 min), and if still level, to penalties. Empirically ~30-40% of WC
+    knockout ties reach ET, and ~half of those go to PK.
+
+    Method
+    ------
+    1. 90min result stands if not a draw (team advances directly).
+    2. On a 90min draw, simulate ET with scaled xG (xg/3 ≈ 30 min).
+    3. On an ET draw, decide by penalties with a slight Elo tilt (±8%).
+
+    Returns to-advance probabilities plus a 90/ET/PK win breakdown.
+    """
+    # ── Extra time: scale xG to ~30 min (1/3 of 90) ──
+    et_xg_h = max(0.15, xg_home / 3.0)
+    et_xg_a = max(0.15, xg_away / 3.0)
+    try:
+        et = match_probs_from_xg(et_xg_h, et_xg_a)
+        et_home = et["home_win"]
+        et_draw = et["draw"]
+        et_away = et["away_win"]
+    except Exception:
+        et_home = et_away = 0.30
+        et_draw = 0.40
+
+    # ── Penalties: slight Elo tilt around 50/50 (±8% cap) ──
+    if elo is not None:
+        try:
+            s_h = elo.expected(elo_h, elo_a)   # neutral home-win prob
+        except Exception:
+            s_h = 0.5
+    else:
+        s_h = 0.5
+    pk_home = 0.5 + 0.08 * (s_h - 0.5) * 2.0   # s_h∈[0,1] → tilt
+    pk_home = max(0.42, min(0.58, pk_home))
+    pk_away = 1.0 - pk_home
+
+    # ── Compose full progression ──
+    win_90_home = p_home_90
+    win_90_away = p_away_90
+    win_et_home = p_draw_90 * et_home
+    win_et_away = p_draw_90 * et_away
+    win_pk_home = p_draw_90 * et_draw * pk_home
+    win_pk_away = p_draw_90 * et_draw * pk_away
+
+    advance_home = win_90_home + win_et_home + win_pk_home
+    advance_away = win_90_away + win_et_away + win_pk_away
+    tot = advance_home + advance_away
+    if tot > 0:
+        advance_home /= tot
+        advance_away /= tot
+
+    return {
+        "et_prob":      round(float(p_draw_90), 3),           # reaches ET
+        "pk_prob":      round(float(p_draw_90 * et_draw), 3), # reaches PK
+        "advance_home": round(float(advance_home), 3),
+        "advance_away": round(float(advance_away), 3),
+        "win_90_home":  round(float(win_90_home), 3),
+        "win_90_away":  round(float(win_90_away), 3),
+        "win_et_home":  round(float(win_et_home), 3),
+        "win_et_away":  round(float(win_et_away), 3),
+        "win_pk_home":  round(float(win_pk_home), 3),
+        "win_pk_away":  round(float(win_pk_away), 3),
+        "et_xg_home":   round(float(et_xg_h), 2),
+        "et_xg_away":   round(float(et_xg_a), 2),
+        "pk_home_edge": round(float(pk_home), 3),
     }
 
 
@@ -777,8 +858,11 @@ def predict_match(
     xg_home = max(0.3, h_sc * elo_factor * 0.7 + (1 - a_cc / 2) * 0.3)
     xg_away = max(0.3, a_sc / elo_factor * 0.7 + (1 - h_cc / 2) * 0.3)
 
-    # Cap xG to prevent extreme inflation from Poisson lambda
-    XG_CAP = 3.5
+    # P1-4: Dynamic xG cap — a dominant team vs a weak team can exceed
+    # 3.5 (Morocco scored 4 vs Haiti; Argentina routinely dominate).
+    # elo_diff already computed above (home-advantaged). Use |gap| so it
+    # applies whichever side is the stronger one.
+    XG_CAP = min(5.0, 3.5 + max(0.0, abs(elo_diff)) / 500.0)
     xg_home = min(xg_home, XG_CAP)
     xg_away = min(xg_away, XG_CAP)
 
@@ -818,16 +902,11 @@ def predict_match(
 
 import urllib.request
 import json as _json
-import os
 
 _ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 
-def fetch_wc_odds(api_key: str = "") -> list[dict]:
-    if not api_key:
-        api_key = _ODDS_API_KEY or os.getenv("ODDS_API_KEY", "")
-    if not api_key:
-        print("⚠️  ODDS_API_KEY not set. Set it in .env or as environment variable.")
-        return []
+
+def fetch_wc_odds(api_key: str = _ODDS_API_KEY) -> list[dict]:
     """
     Fetch all World Cup match odds from The Odds API.
     Returns list of dicts with home_team, away_team, h2h odds.
@@ -924,6 +1003,25 @@ ATTACKING_TEAMS = {
     "Spain":     1.10,
 }
 
+# P1-2: Residual Elo bias correction (re-applied from v4.7 analysis).
+# elo_v3 was rebuilt from WC26 group results but STILL overrates
+# South American / Asian qualifier inflation and underrates some
+# European sides vs their FIFA ranking. These deltas nudge ratings
+# toward ranking reality. Empirically derived; revisit after WC26.
+ELO_RESIDUAL_CORRECTION = {
+    "Ecuador":      -150,  # FIFA #23 but elo_v3 #13 — qualifier inflation
+    "Japan":        -100,  # Asian qualifier xG accumulation
+    "Australia":     -50,
+    "Turkey":        -50,
+    "Paraguay":      -30,
+    "USA":           +80,  # FIFA #14 — elo_v3 underrates
+    "Sweden":        +30,
+    "Germany":       +30,
+    "Netherlands":   +20,
+    "Ivory Coast":   +20,
+    "Senegal":       +30,
+}
+
 # Stadium altitudes (metres above sea level) for altitude adjuster
 STADIUM_ALTITUDE = {
     # Mexico City is the famous high-altitude venue
@@ -992,6 +1090,58 @@ def injury_factor(
         result["xg_scale"][team] = total_xg
 
     return result
+
+
+def health_factor(
+    home_health: int | None = None,
+    away_health: int | None = None,
+) -> dict:
+    """
+    P1-1: Quantify squad-health (virus / flu / fatigue / illness) impact.
+
+    Mirrors injury_factor() but for whole-squad wellness events that are
+    NOT individual injuries. Severity tiers (0=None,1=mild,2=mod,3=sev):
+        Tier 1 (mild):     -20 Elo, 0.93x xG
+        Tier 2 (moderate): -45 Elo, 0.85x xG
+        Tier 3 (severe):   -70 Elo, 0.78x xG
+
+    Pair with scan_health_from_text() to auto-derive severity from news.
+    """
+    def _rate(sev: int) -> tuple:
+        return {
+            1: (-20, 0.93),
+            2: (-45, 0.85),
+            3: (-70, 0.78),
+        }.get(int(sev or 0), (0, 1.0))
+
+    result = {"elo_adjust": {}, "xg_scale": {}}
+    for team, sev in [("home", home_health or 0), ("away", away_health or 0)]:
+        elo_d, xg_s = _rate(sev)
+        result["elo_adjust"][team] = elo_d
+        result["xg_scale"][team] = xg_s
+    return result
+
+
+def scan_health_from_text(text: str) -> int:
+    """
+    P1-1 helper: derive a 0-3 squad-health severity from a news snippet.
+    Caller passes the result to predict_ensemble(home_health=..., ...).
+    """
+    if not text:
+        return 0
+    t = text.lower()
+    severe = ["outbreak", "virus", "flu epidemic", "epidemic", "multiple players",
+              "several players", "whole squad"]
+    moderate = ["illness", "sick", "fever", "missing training", "doubtful",
+                "fatigue", "bug", "food poisoning"]
+    mild = ["cold", "minor knock", "slight"]
+    if any(k in t for k in severe):
+        return 3
+    if any(k in t for k in moderate):
+        return 2
+    if any(k in t for k in mild):
+        return 1
+    return 0
 
 
 def knockout_defense_adjuster(
@@ -1148,6 +1298,8 @@ def predict_ensemble(
     # ── v5.0 qualitative parameters ──
     home_injuries: list[str] | None = None,
     away_injuries: list[str] | None = None,
+    home_health: int | None = None,   # P1-1: squad health 0-3 (virus/flu/fatigue)
+    away_health: int | None = None,
     home_qualified: bool = False,
     away_qualified: bool = False,
     home_must_win: bool = False,
@@ -1186,6 +1338,16 @@ def predict_ensemble(
     elo_h = max(1400, elo_h_raw + injury["elo_adjust"].get("home", 0))
     elo_a = max(1400, elo_a_raw + injury["elo_adjust"].get("away", 0))
 
+    # P1-1: squad-health (virus / flu / fatigue) elo adjustment
+    health = health_factor(home_health, away_health)
+    elo_h = max(1400, elo_h + health["elo_adjust"].get("home", 0))
+    elo_a = max(1400, elo_a + health["elo_adjust"].get("away", 0))
+
+    # P1-2: residual Elo bias correction (Ecuador/Japan overrated,
+    # USA/Sweden underrated vs FIFA ranking — elo_v3 still skews)
+    elo_h += ELO_RESIDUAL_CORRECTION.get(home, 0)
+    elo_a += ELO_RESIDUAL_CORRECTION.get(away, 0)
+
     # ════════════════════════════════════════════════
     # V5.0: ALTITUDE ADJUSTMENT
     # ════════════════════════════════════════════════
@@ -1210,9 +1372,9 @@ def predict_ensemble(
     ml = predict_match(home, away, elo, model, feat_df, neutral, is_wc)
     ml_probs = np.array([ml["p_home"], ml["p_draw"], ml["p_away"]])
 
-    # V5.0: Apply injury xG scale to ML xG
-    ml["xg_home"] = ml["xg_home"] * injury["xg_scale"].get("home", 1.0)
-    ml["xg_away"] = ml["xg_away"] * injury["xg_scale"].get("away", 1.0)
+    # V5.0: Apply injury + P1-1 health xG scale to ML xG
+    ml["xg_home"] = ml["xg_home"] * injury["xg_scale"].get("home", 1.0) * health["xg_scale"].get("home", 1.0)
+    ml["xg_away"] = ml["xg_away"] * injury["xg_scale"].get("away", 1.0) * health["xg_scale"].get("away", 1.0)
 
     # 2. Elo-based prediction — using adjusted Elo
     if not neutral:
@@ -1280,6 +1442,43 @@ def predict_ensemble(
             adj = knockout_defense_adjuster(home, True, away_is_attacking)
             xg_a_adjusted *= adj
 
+        # ── P0-2 enhancement: defensive teams suppress their OWN xG ──
+        # Bus-parking sides rarely attack, especially vs dominant/top
+        # attackers. The base defense adjuster only lowers the OPPONENT's
+        # xG; here we also pull down the defensive team's own xG so that
+        # BTTS / O-U markets stop over-crediting them (France 2-0 Morocco:
+        # model gave Morocco xG 1.16 → true was 0.14).
+        for _team, _side in ((home, "h"), (away, "a")):
+            if _team in DEFENSIVE_TEAMS:
+                _supp = DEFENSIVE_TEAMS[_team]
+                _opp_elo = elo_a_raw if _team == home else elo_h_raw
+                _self_elo = elo_h_raw if _team == home else elo_a_raw
+                if (_opp_elo - _self_elo) > 150:      # dominant opponent
+                    _supp *= 0.70
+                _opp = away if _team == home else home
+                if _opp in ATTACKING_TEAMS:           # top attacker
+                    _supp *= 0.85
+                if _side == "h":
+                    xg_h_adjusted *= _supp
+                else:
+                    xg_a_adjusted *= _supp
+
+    # ── P1-3: net-margin (blowout) shift ──
+    # A dominant team vs a much weaker one tends to win by MORE than raw
+    # xG implies (Belgium 4-1 USA, France 4-1 Norway). When the Elo gap is
+    # large, tilt the stronger side's xG upward so the Poisson score
+    # distribution produces bigger wins / bigger AH covers.
+    _elo_gap = abs(elo_h - elo_a)
+    if _elo_gap > 300:
+        _blowout = 1.0 + min(0.25, (_elo_gap - 300) / 2000.0)  # up to +25%
+        if elo_h > elo_a:
+            xg_h_adjusted *= _blowout
+        else:
+            xg_a_adjusted *= _blowout
+
+    # xG adjustment flag (used by BTTS cap + KO progression below)
+    adjusted_xg_used = abs(xg_h_adjusted - xg_h) > 0.01 or abs(xg_a_adjusted - xg_a) > 0.01
+
     # 5. Draw calibration
     if is_knockout:
         if not market_odds:
@@ -1302,8 +1501,26 @@ def predict_ensemble(
     mode_tag = "knockout" if is_knockout else "group"
     dc = ml.get("dc", {})
 
-    # Re-run DC probs if xG was adjusted
-    adjusted_xg_used = abs(xg_h_adjusted - xg_h) > 0.01 or abs(xg_a_adjusted - xg_a) > 0.01
+    # ── P0-2: re-apply BTTS cap using DEFENSE-ADJUSTED xG ──
+    # predict_match() builds dc from raw xG; the v5.0 defense adjuster
+    # lowers xG afterwards, so re-cap BTTS here to stay consistent.
+    if is_knockout and "btts_yes" in dc and dc.get("btts_yes") is not None:
+        _min_xg_adj = min(xg_h_adjusted, xg_a_adjusted)
+        _btts_cap = 1.0 - math.exp(-max(0.0, _min_xg_adj))
+        if dc["btts_yes"] > _btts_cap:
+            dc["btts_yes"] = round(float(_btts_cap), 4)
+
+    # ── P0-1: Knockout progression (90min → ET → PK) ──
+    ko = None
+    if is_knockout:
+        ko = simulate_knockout_progression(
+            p_home_90=float(final[0]),
+            p_draw_90=float(final[1]),
+            p_away_90=float(final[2]),
+            xg_home=xg_h_adjusted if adjusted_xg_used else xg_h,
+            xg_away=xg_a_adjusted if adjusted_xg_used else xg_a,
+            elo_h=elo_h, elo_a=elo_a, elo=elo,
+        )
 
     v5_fields = {
         "v5_injury_adjust": injury,
@@ -1352,6 +1569,7 @@ def predict_ensemble(
         "correct_score":       dc.get("correct_score"),
         "dc_probs":            dc.get("home_win"),
         # v5.0 debug fields
+        "ko":                  ko,
         "v5":                  v5_fields,
     }
 
@@ -1379,6 +1597,8 @@ def predict_jingcai(
     # ── v5.0 parameters ──
     home_injuries: list[str] | None = None,
     away_injuries: list[str] | None = None,
+    home_health: int | None = None,   # P1-1: squad health 0-3
+    away_health: int | None = None,
     home_qualified: bool = False,
     away_qualified: bool = False,
     home_must_win: bool = False,
@@ -1424,6 +1644,8 @@ def predict_jingcai(
         is_knockout=is_knockout,
         home_injuries=home_injuries,
         away_injuries=away_injuries,
+        home_health=home_health,
+        away_health=away_health,
         home_qualified=home_qualified,
         away_qualified=away_qualified,
         home_must_win=home_must_win,
