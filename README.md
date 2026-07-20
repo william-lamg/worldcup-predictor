@@ -190,3 +190,5 @@ MIT License — 详见 [LICENSE](LICENSE)
 ---
 
 **Author: william-lamg**
+
+**2026 年世界杯见**
