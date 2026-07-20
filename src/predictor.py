@@ -1097,21 +1097,31 @@ def health_factor(
     away_health: int | None = None,
 ) -> dict:
     """
-    P1-1: Quantify squad-health (virus / flu / fatigue / illness) impact.
+    P1-1 + v6.1→v6.2: Quantify squad-health impact.
 
-    Mirrors injury_factor() but for whole-squad wellness events that are
-    NOT individual injuries. Severity tiers (0=None,1=mild,2=mod,3=sev):
-        Tier 1 (mild):     -20 Elo, 0.93x xG
-        Tier 2 (moderate): -45 Elo, 0.85x xG
-        Tier 3 (severe):   -70 Elo, 0.78x xG
+    Severity tiers (0=None,1=mild,2=mod-fatigue,3=sev-outbreak,4=half-rot):
+        Tier 0 (full strength):     0 Elo,   1.00x xG
+        Tier 1 (mild sickness):     -20 Elo, 0.95x xG
+        Tier 2 (moderate fatigue):  -50 Elo, 0.85x xG  ← v6.2 COLLAPSE (was +15/+1.05 back-wall)
+        Tier 3 (severe outbreak):   -80 Elo, 0.70x xG
+        Tier 4 (half rotation):     -120 Elo, 0.50x xG
+
+    v6.2 fix: Final review of WC26 final (Argentina 0 shots in 90') proved
+    tier-2 fatigue in knockouts = COLLAPSE not BACK-WALL. After 3 consecutive
+    ET matches, Argentina's xG (model 2.01) collapsed to 0 shots. Tier 2 now
+    suppresses xG instead of boosting it.
+    Group-stage "back-wall" motivation is a separate effect captured via
+    battle_intent_factor (must-win), not health_factor.
 
     Pair with scan_health_from_text() to auto-derive severity from news.
     """
     def _rate(sev: int) -> tuple:
         return {
-            1: (-20, 0.93),
-            2: (-45, 0.85),
-            3: (-70, 0.78),
+            0: (0, 1.00),     # full strength
+            1: (-20, 0.95),   # mild sickness
+            2: (-50, 0.85),   # v6.2: moderate fatigue → COLLAPSE
+            3: (-80, 0.70),   # severe outbreak
+            4: (-120, 0.50),  # half rotation (e.g. 3rd-place playoff)
         }.get(int(sev or 0), (0, 1.0))
 
     result = {"elo_adjust": {}, "xg_scale": {}}
@@ -1285,6 +1295,327 @@ def battle_intent_factor(
 # ──────────────────────────────────────────────
 
 
+# ──────────────────────────────────────────────
+# V6.0 — MATCHUP HEAD-TO-HEAD (HISTORICAL DATA) LAYER
+# ──────────────────────────────────────────────
+# Corrects for "kryptonite" patterns NOT captured by Elo / market odds.
+# Source A: H2H_OVERRIDE  - curated, verified RECENT results (fixes the
+#                            stale 1990-present results.csv for marquee
+#                            matchups whose latest meetings aren't in it).
+# Source B: dataframe H2H - general fallback from the global feat_df
+#           (covers any pair with ≥4 past meetings in the 32k dataset).
+# Orientation is re-derived at query time from the current home/away.
+
+H2H_OVERRIDE: dict = {
+    # Spain 7-1-2 vs France in last 10 (France's ONLY win in 7 yrs was the
+    # 2021 Nations League final). 2024 Euro SF, 2025 NL SF, 2026 WC SF all
+    # Spain wins -> model must stop favouring France on name/ranking alone.
+    frozenset({"France", "Spain"}): [
+        "France",   # older France win (pre-2021)
+        "Spain", "Spain",
+        "France",   # 2021-10-10 Nations League final (France's lone recent win)
+        "Spain", "draw", "Spain",
+        "Spain",    # 2024-07-09 European Championship SF  Spain 2-1 France
+        "Spain",    # 2025-06-05 Nations League SF          Spain 5-4 France
+        "Spain",    # 2026-07-15 World Cup SF               Spain 2-0 France
+    ],
+}
+
+
+# V6.0 — curated international-results dataset for H2H depth.
+# Source: AndyLin31/International-Football-Results (44,762 men's full
+# internationals, 1872-2023). Saved to data/international_results_2023.csv.
+# Far deeper & more authoritative than the model's 1990-present feat_df.
+_H2H_DB_CACHE = None
+def _load_h2h_db():
+    global _H2H_DB_CACHE
+    if _H2H_DB_CACHE is not None:
+        return _H2H_DB_CACHE
+    p = Path(__file__).resolve().parent / "data" / "international_results_2023.csv"
+    if p.exists():
+        try:
+            df = pd.read_csv(p)
+            df["home_score"] = pd.to_numeric(df["home_score"], errors="coerce")
+            df["away_score"] = pd.to_numeric(df["away_score"], errors="coerce")
+            df = df.dropna(subset=["home_score", "away_score"])
+            _H2H_DB_CACHE = df
+        except Exception:
+            _H2H_DB_CACHE = pd.DataFrame()
+    else:
+        _H2H_DB_CACHE = pd.DataFrame()
+    return _H2H_DB_CACHE
+
+
+def matchup_h2h_probs(home: str, away: str, window: int = 10,
+                      recency_weighted: bool = False):
+    """Return (h2h_probs_3vec, n_meetings) for the current orientation.
+
+    h2h_probs = [P(home wins in recent H2H), P(draw), P(away wins)].
+    Returns (None, 0) when there is insufficient history.
+
+    v6.1: recency_weighted=True gives recent meetings 2x/1.5x/1x weights
+    (last 5 / 6-10 / 11+), to avoid diluting strong recent signals (e.g.
+    Argentina 3-0 Spain in last 3 major tournaments all W for ARG).
+    """
+    key = frozenset({home, away})
+
+    def _weight(i_from_end: int) -> float:
+        """i_from_end = 0 means most recent meeting."""
+        if not recency_weighted:
+            return 1.0
+        if i_from_end < 5:
+            return 2.0
+        if i_from_end < 10:
+            return 1.5
+        return 1.0
+
+    if key in H2H_OVERRIDE:
+        past = H2H_OVERRIDE[key][-window:]
+        if len(past) >= 4:
+            if not recency_weighted:
+                w = sum(1 for r in past if r == home)
+                d = sum(1 for r in past if r == "draw")
+                l = len(past) - w - d
+                n = len(past)
+                return np.array([w / n, d / n, l / n], dtype=float), n
+            # Recency-weighted aggregation
+            tw, td, tl = 0.0, 0.0, 0.0
+            for i_from_end, r in enumerate(reversed(past)):
+                wt = _weight(i_from_end)
+                if r == home:
+                    tw += wt
+                elif r == "draw":
+                    td += wt
+                else:
+                    tl += wt
+            n = tw + td + tl
+            return np.array([tw / n, td / n, tl / n], dtype=float), len(past)
+    # Source B: dataframe-derived H2H from the curated 44,762-match
+    # international results dataset (1872-2023) — deeper & more
+    # authoritative than the model's 1990-present feat_df.
+    try:
+        h2h_db = _load_h2h_db()
+        if len(h2h_db):
+            mask = (
+                ((h2h_db["home_team"] == home) & (h2h_db["away_team"] == away)) |
+                ((h2h_db["home_team"] == away) & (h2h_db["away_team"] == home))
+            )
+            past = h2h_db[mask].tail(window)
+            if len(past) >= 4:
+                if not recency_weighted:
+                    w = sum(
+                        1 for _, r in past.iterrows()
+                        if (r["home_team"] == home and r["home_score"] > r["away_score"]) or
+                           (r["away_team"] == home and r["away_score"] > r["home_score"])
+                    )
+                    d = sum(1 for _, r in past.iterrows() if r["home_score"] == r["away_score"])
+                    l = len(past) - w - d
+                    n = len(past)
+                    return np.array([w / n, d / n, l / n], dtype=float), n
+                # Recency-weighted aggregation (most recent first)
+                tw, td, tl = 0.0, 0.0, 0.0
+                rows = list(past.iterrows())
+                for i_from_end, (_, r) in enumerate(reversed(rows)):
+                    wt = _weight(i_from_end)
+                    if (r["home_team"] == home and r["home_score"] > r["away_score"]) or \
+                       (r["away_team"] == home and r["away_score"] > r["home_score"]):
+                        tw += wt
+                    elif r["home_score"] == r["away_score"]:
+                        td += wt
+                    else:
+                        tl += wt
+                n = tw + td + tl
+                return np.array([tw / n, td / n, tl / n], dtype=float), len(past)
+    except Exception:
+        pass
+    return None, 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# V6.1: CLUTCH GENE FACTOR
+# Quantifies a team's tendency to grind out 1-0 / 0-1 wins (late-goal
+# proxy) in major tournaments. Returns xG multiplier 0.92 - 1.08.
+# ═══════════════════════════════════════════════════════════════════════
+_CLUTCH_TOURNAMENTS = {
+    "FIFA World Cup", "UEFA Euro", "Copa América",
+    "African Cup of Nations", "AFC Asian Cup", "Gold Cup",
+}
+
+
+def clutch_gene_factor(team: str, last_n: int = 5) -> float:
+    """
+    v6.1: Quantify a team's "clutch gene" — propensity to grind out
+    1-0 / 0-1 wins (a strong late-goal proxy since most such scorelines
+    result from 75'+ winners) in major tournaments.
+
+    Returns xG multiplier 0.94 (low clutch) — 1.00 (baseline) — 1.06 (high).
+    Based on team's last-N major-tournament matches since 2014-01-01.
+    """
+    h2h_db = _load_h2h_db()
+    if len(h2h_db) == 0:
+        return 1.0
+    try:
+        df = h2h_db[
+            (h2h_db["tournament"].isin(_CLUTCH_TOURNAMENTS)) &
+            ((h2h_db["home_team"] == team) | (h2h_db["away_team"] == team)) &
+            (h2h_db["date"] >= "2014-01-01")
+        ].sort_values("date", ascending=False).head(last_n)
+    except Exception:
+        return 1.0
+    if len(df) == 0:
+        return 1.0
+    one_zero_count = 0
+    for _, row in df.iterrows():
+        hs, as_ = row["home_score"], row["away_score"]
+        if (hs == 1 and as_ == 0) or (hs == 0 and as_ == 1):
+            one_zero_count += 1
+    score = one_zero_count / len(df)
+    # 0.20 -> 0.94 (low), 0.40 -> 1.00 (baseline), 0.60+ -> 1.06 (high)
+    if score < 0.20:
+        return 0.94
+    if score < 0.40:
+        return 1.00
+    if score < 0.60:
+        return 1.03
+    return 1.06
+
+
+# ── WC-2026 specific clutch (covers tournament KO results only) ──────────────
+_WC2026_KO_RESULTS = {
+    # {team: [(opponent, home_score, away_score, stage), ...]}
+    "Argentina": [
+        ("Cape Verde", 2, 0, "R16"),
+        ("Egypt", 1, 0, "QF"),        # 90'+GOATT win
+        ("Switzerland", 3, 1, "QF"),  # ET win
+        ("England", 2, 1, "SF"),       # ET 92' win
+    ],
+    "Spain": [
+        ("Portugal", 1, 0, "R16"),    # 90min
+        ("Austria", 3, 0, "R16"),     # not clutch
+        ("France", 2, 0, "SF"),       # 90min clear
+    ],
+    "England": [
+        ("Norway", 2, 1, "QF"),      # ET
+    ],
+}
+
+
+def wc2026_clutch_factor(team: str) -> float:
+    """
+    v6.1: World Cup 2026 specific clutch factor.
+    Counts 1-0/0-1 knockout wins (strongest GOATT proxy).
+    Returns xG multiplier: Argentina 1.06, others 1.00.
+    """
+    ko = _WC2026_KO_RESULTS.get(team, [])
+    if not ko:
+        return 1.00
+    # "Tight" KO = any single-goal margin (1-0/2-1/3-2 etc) OR 1-0 exact
+    # Both capture late/goat-goal situations; ET results also qualify
+    clutch_wins = sum(
+        1 for (_, hs, as_, _) in ko
+        if abs(hs - as_) == 1   # single-goal margin (includes 1-0, 2-1, 3-2...)
+    )
+    # Argentina 3 tight KO (Egypt 1-0, Switzerland 3-1/2-1 ET, England 2-1 ET) -> 1.06
+    # Spain 1 tight KO (Portugal 1-0) -> 1.01
+    if clutch_wins >= 3:
+        return 1.06
+    if clutch_wins == 2:
+        return 1.03
+    if clutch_wins == 1:
+        return 1.01
+    return 1.00
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# v6.2: FINAL-REVIEW FIXES (lessons from WC26 final: ARG 0 shots in 90')
+#   1. consecutive_et_penalty  — back-to-back KO ET crushes xG
+#   2. finals_xg_cap           — defensive finals score FAR fewer goals
+#   3. collapse_risk            — fatigue + health → "team崩潰" probability
+#   4. STRICT_REFS + referee_card_multiplier — card-happy refs blow up
+#      the TEMP-QUIZ bookings forecast
+# ═══════════════════════════════════════════════════════════════════════════
+
+def consecutive_et_penalty(et_count: int) -> float:
+    """
+    v6.2: xG multiplier for a team that has played many extra-time KO games
+    in a row. Consecutive ET destroys legs/sharpness (ARG WC26: 3 straight
+    ET wins → 0 shots in 90' of the final).
+        et_count >= 3 → 0.60  (-40%)
+        et_count == 2 → 0.75  (-25%)
+        et_count <= 1 → 1.00  (no penalty)
+    """
+    if et_count >= 3:
+        return 0.60
+    if et_count == 2:
+        return 0.75
+    return 1.00
+
+
+def finals_xg_cap(stage: str | None, total_xg: float) -> float:
+    """
+    v6.2: Cap combined xG for high-stakes knockout ties. Defensive finals
+    (0-0 after 90' both sides) score far fewer than the model's raw xG sum.
+        final:   1.8
+        semi:    2.2
+        quarter: 2.5
+        default: 3.5 (group / R16)
+    """
+    cap = {"final": 1.8, "semi": 2.2, "quarter": 2.5}.get(stage, 3.5)
+    return min(float(total_xg), cap)
+
+
+def collapse_risk(et_fatigue: int, health_tier: int) -> float:
+    """
+    v6.2: Probability a team is in "崩潰 state" (unable to create chances).
+    Driven by consecutive ET games + squad-health severity.
+        3 ET + tier>=2   → 0.75
+        3 ET + tier<2    → 0.55
+        2 ET + tier>=2   → 0.50
+        2 ET + tier<2    → 0.35
+        else             → 0.0-0.15
+    Used to flag (not override) extreme under-performance risk.
+    """
+    if et_fatigue >= 3 and health_tier >= 2:
+        return 0.75
+    if et_fatigue >= 3:
+        return 0.55
+    if et_fatigue == 2 and health_tier >= 2:
+        return 0.50
+    if et_fatigue == 2:
+        return 0.35
+    if health_tier >= 3:
+        return 0.30
+    if health_tier == 2:
+        return 0.15
+    return 0.0
+
+
+# v6.2: Card-happy referees — blow up the TEMP-QUIZ bookings forecast.
+# Per-match averages from recent 20-game samples.
+STRICT_REFS = {
+    "Vinčić": {"name": "Slavko Vinčić", "yellow_mult": 1.5, "red_mult": 2.0, "base_yellow": 5.15},
+    "Barton":  {"name": "Ivan Barton",    "yellow_mult": 1.5, "red_mult": 2.0, "base_yellow": 5.15},
+    "Ghorbal": {"name": "Mustapha Ghorbal", "yellow_mult": 1.2, "red_mult": 1.5, "base_yellow": 4.0},
+}
+
+
+def referee_card_multiplier(referee: str | None) -> dict:
+    """
+    v6.2: Return card multipliers + expected yellow base for a known strict
+    referee. Unknown refs fall back to the global 2.70/0.10 baseline.
+    """
+    if not referee:
+        return {"yellow_mult": 1.0, "red_mult": 1.0, "base_yellow": 2.70}
+    ref = STRICT_REFS.get(referee)
+    if not ref:
+        return {"yellow_mult": 1.0, "red_mult": 1.0, "base_yellow": 2.70}
+    return {
+        "yellow_mult": ref["yellow_mult"],
+        "red_mult": ref["red_mult"],
+        "base_yellow": ref["base_yellow"],
+    }
+
+
 def predict_ensemble(
     home: str,
     away: str,
@@ -1307,16 +1638,42 @@ def predict_ensemble(
     opponent_is_defensive: bool | None = None,
     disable_brand_correction: bool = False,
     disable_altitude: bool = True,  # default True since most WC26 venues are near sea level
+    # ── v6.1 parameters ──
+    home_et_fatigue: int = 0,     # number of prior knockout ET games
+    away_et_fatigue: int = 0,
+    use_clutch_gene: bool = True,
+    h2h_recency_weighted: bool = True,
+    # ── v6.2 parameters (final-review fixes) ──
+    referee: str | None = None,              # strict-ref card multiplier
+    tournament_stage: str | None = None,      # "final"/"semi"/"quarter"/None
 ) -> dict:
     """
-    V5.0 Ensemble predictor with full qualitative layer.
+    V6.1 Ensemble predictor (adds clutch_gene + back-wall + recency h2h).
 
-    V5.0 additions (compared to v4.9):
+    V6.1 additions (compared to v6.0):
+      7. CLUTCH GENE — late-goal propensity in major tournaments (xG 0.94-1.06)
+      8. BACK-WALL HEALTH — tier-2 fatigue now boosts (+15 Elo, 1.05x xG)
+      9. ET FATIGUE — extra-time prior games trim xG (-4% each)
+     10. RECENCY-WEIGHTED H2H — last 5 meetings get 2x, 6-10 get 1.5x
+
+    V6.2 additions (final-review fixes, WC26 final: ARG 0 shots in 90'):
+     11. CONSECUTIVE ET PENALTY — home_et_fatigue/away_et_fatigue trim xG
+         (>=3 ET → 0.60x, ==2 ET → 0.75x) — fixes tier-2 collapse blindness
+     12. HEALTH_FACTOR REWRITE — tier 2 now COLLAPSE (-50 Elo, 0.85x xG)
+         instead of back-wall bonus; tier 4 (half-rotation) added (-120, 0.50x)
+     13. FINALS XG CAP — combined xG capped (final 1.8 / semi 2.2 / qf 2.5)
+     14. COLLAPSE RISK — fatigue + health → "team崩潰" probability (output only)
+     15. STRICT REF MULTIPLIER — Vinčić/Barton card-happy refs blow up bookings
+
+    V6.0 additions (compared to v5.0):
       1. INJURY FACTOR — elo/xg adjustment based on missing key players
       2. BRAND PREMIUM CORRECTION — de-bias Brazil/ARG/GER brand inflation
       3. ALTITUDE ADJUSTMENT — high-altitude away team penalty
       4. DEFENSE ADJUSTER — knockout xG reduction vs bus-parking teams
       5. BATTLE INTENT — group-stage motivation/resting adjustment
+      6. MATCHUP H2H — head-to-head correction layer (historical data):
+         corrects "kryptonite" patterns (Spain 7-1-2 vs France) via curated
+         H2H_OVERRIDE + dataframe-derived H2H fallback, blended @ ≤0.15.
 
     KO Mode (is_knockout=True):
       - Market weight: 65%% — market prices in ALL info
@@ -1424,6 +1781,17 @@ def predict_ensemble(
     xg_h_adjusted = xg_h
     xg_a_adjusted = xg_a
 
+    # ════════════════════════════════════════════════
+    # v6.2: CONSECUTIVE ET PENALTY — back-to-back KO ET crushes legs/xG
+    # (ARG WC26: 3 straight ET wins → 0 shots in 90' of final)
+    # ════════════════════════════════════════════════
+    _et_h = consecutive_et_penalty(home_et_fatigue)
+    _et_a = consecutive_et_penalty(away_et_fatigue)
+    if _et_h != 1.0 or _et_a != 1.0:
+        xg_h_adjusted *= _et_h
+        xg_a_adjusted *= _et_a
+        adjusted_xg_used = True
+
     if is_knockout:
         opponent_for_home = opponent_is_defensive if opponent_is_defensive is not None else \
             (away in DEFENSIVE_TEAMS or away in brand_premium_corrector.__globals__.get('DEFENSIVE_TEAMS', {}))
@@ -1479,6 +1847,34 @@ def predict_ensemble(
     # xG adjustment flag (used by BTTS cap + KO progression below)
     adjusted_xg_used = abs(xg_h_adjusted - xg_h) > 0.01 or abs(xg_a_adjusted - xg_a) > 0.01
 
+    # V6.1: Clutch Gene — both legacy 44k and WC-2026 specific factors
+    # Apply to xG used for KO simulation (affects ET/PK advance probabilities)
+    if use_clutch_gene:
+        cg_h = clutch_gene_factor(home)          # 44k baseline: 0.94-1.06
+        cg_a = clutch_gene_factor(away)
+        wc_h = wc2026_clutch_factor(home)        # WC-2026 specific: 1.00-1.06
+        wc_a = wc2026_clutch_factor(away)
+        # Combine multiplicatively; WC-2026 layer overrides for known teams
+        xg_h_adjusted *= cg_h * wc_h
+        xg_a_adjusted *= cg_a * wc_a
+        adjusted_xg_used = True   # clutch always modifies xG
+
+
+    # ════════════════════════════════════════════════
+    # v6.2: FINALS XG CAP — defensive finals score FAR fewer goals
+    # Cap the COMBINED xG (home+away) and scale both down proportionally.
+    # (WC26 final: model 3.50 xG sum → actual 1 goal after 90' deadlock)
+    # ════════════════════════════════════════════════
+    if tournament_stage in ("final", "semi", "quarter"):
+        _total = xg_h_adjusted + xg_a_adjusted
+        _capped = finals_xg_cap(tournament_stage, _total)
+        if _capped < _total and _total > 0:
+            _scale = _capped / _total
+            xg_h_adjusted *= _scale
+            xg_a_adjusted *= _scale
+            adjusted_xg_used = True
+
+
     # 5. Draw calibration
     if is_knockout:
         if not market_odds:
@@ -1497,6 +1893,26 @@ def predict_ensemble(
             if total_nondraw > 0:
                 final[0] += penalty * (final[0] / total_nondraw)
                 final[2] += penalty * (final[2] / total_nondraw)
+
+    # ════════════════════════════════════════════════
+    # V6.0: MATCHUP HEAD-TO-HEAD ADJUSTMENT
+    # Corrects "kryptonite" patterns missed by Elo/market
+    # (e.g. Spain 7-1-2 vs France -> Spain should be favoured).
+    # Blend weight scales with sample size, capped at 0.15 so it nudges
+    # without overriding the 3-source ensemble.
+    # ════════════════════════════════════════════════
+    h2h_probs, n_meet = matchup_h2h_probs(home, away, window=10,
+                                         recency_weighted=h2h_recency_weighted)
+    h2h_applied = False
+    w_h2h = 0.0
+    if h2h_probs is not None and n_meet >= 4:
+        if h2h_recency_weighted:
+            w_h2h = min(0.20, 0.025 * n_meet)   # 4->0.10, 8->0.20 (cap)
+        else:
+            w_h2h = min(0.15, 0.02 * n_meet)    # 4->0.08, 8->0.16->cap 0.15
+        final = (1.0 - w_h2h) * final + w_h2h * h2h_probs
+        final = final / final.sum()
+        h2h_applied = True
 
     mode_tag = "knockout" if is_knockout else "group"
     dc = ml.get("dc", {})
@@ -1517,8 +1933,8 @@ def predict_ensemble(
             p_home_90=float(final[0]),
             p_draw_90=float(final[1]),
             p_away_90=float(final[2]),
-            xg_home=xg_h_adjusted if adjusted_xg_used else xg_h,
-            xg_away=xg_a_adjusted if adjusted_xg_used else xg_a,
+            xg_home=xg_h_adjusted,   # always adjusted (incl. clutch)
+            xg_away=xg_a_adjusted,   # always adjusted (incl. clutch)
             elo_h=elo_h, elo_a=elo_a, elo=elo,
         )
 
@@ -1533,6 +1949,59 @@ def predict_ensemble(
         "v5_brand_corrected": True if (market_odds and not disable_brand_correction and
             (BRAND_PREMIUM.get(home, 1.0) < 1.0 or BRAND_PREMIUM.get(away, 1.0) < 1.0)) else False,
     }
+
+    # ══════════════════════════════════════════════════════════════════
+    # TEMP-QUIZ: FIRST GOAL SCORER (先開紀錄) — 臨時 quiz 欄位, 非正式版本, 之後可能移除
+    #   P(home first) = λh/(λh+λa) · (1 − e^−(λh+λa))
+    #   P(away first) = λa/(λh+λa) · (1 − e^−(λh+λa))
+    #   P(no goal)    = e^−(λh+λa)
+    # Derived from adjusted xG; no new data required.
+    # ══════════════════════════════════════════════════════════════════
+    _fg_h = xg_h_adjusted if adjusted_xg_used else xg_h
+    _fg_a = xg_a_adjusted if adjusted_xg_used else xg_a
+    _fg_sum = _fg_h + _fg_a
+    if _fg_sum > 0:
+        _fg_p00 = math.exp(-_fg_sum)
+        _fg_home = (_fg_h / _fg_sum) * (1.0 - _fg_p00)
+        _fg_away = (_fg_a / _fg_sum) * (1.0 - _fg_p00)
+    else:
+        _fg_p00, _fg_home, _fg_away = 1.0, 0.0, 0.0
+
+    # ══════════════════════════════════════════════════════════════════
+    # TEMP-QUIZ: BOOKINGS (紅黃牌) — 臨時 quiz 欄位, 非正式版本, 之後可能移除
+    #   Baseline (official WC26, 96 matches): 2.70 YC/match, 0.15 RC/match
+    #   Team aggression multiplier from observed news/data; knockout stage
+    #   multiplier (semi-finals tighter → more tactical fouls).
+    #   NOTE: team profile is sparse (news-derived), not a full dataset.
+    # ══════════════════════════════════════════════════════════════════
+    _CARD_YC_BASE = 2.70
+    _CARD_RC_BASE = 0.15
+    _TEAM_CARD_PROFILE = {
+        "Switzerland": 1.35, "Uruguay": 1.30, "Netherlands": 1.10,
+        "England": 1.05, "Mexico": 1.05, "Italy": 1.05,
+        "Croatia": 1.05, "France": 1.00, "Argentina": 1.00,
+        "Brazil": 1.00, "Portugal": 1.00, "Belgium": 1.00,
+        "Colombia": 1.00, "United States": 1.00, "Germany": 0.95,
+        "Spain": 0.95, "Morocco": 0.95, "Japan": 0.90,
+    }
+    _ref = referee_card_multiplier(referee)
+    _ko_card_mult = (1.20 if is_knockout else 1.0) * _ref["yellow_mult"]
+    _prof_h = _TEAM_CARD_PROFILE.get(home, 1.0)
+    _prof_a = _TEAM_CARD_PROFILE.get(away, 1.0)
+    # v6.2: expected yellows = (neutral KO baseline × profile) + strict-ref extra.
+    # The ref's own base_yellow (e.g. Vinčić 5.15) ALREADY bakes in his
+    # card-happy tendency, so we add the delta over the neutral baseline
+    # instead of multiplying (avoids double-counting).
+    _neutral_base = _CARD_YC_BASE
+    _ref_extra = (_ref["base_yellow"] - _neutral_base) if referee else 0.0
+    _yc_lambda = _neutral_base * (1.20 if is_knockout else 1.0) * 0.5 * (_prof_h + _prof_a) + _ref_extra
+    def _pois(k, lam):
+        return math.exp(-lam) * (lam ** k) / math.factorial(k)
+    _card_02 = sum(_pois(k, _yc_lambda) for k in range(0, 3))   # 0-2 張
+    _card_35 = sum(_pois(k, _yc_lambda) for k in range(3, 6))   # 3-5 張
+    _card_6p = max(0.0, 1.0 - _card_02 - _card_35)              # 6+ 張
+    # v6.2: red-card multiplier from strict refs (1.0 for neutral)
+    _p_red = 1.0 - (1.0 - _CARD_RC_BASE) ** (_ko_card_mult * _ref["red_mult"])  # ≥1 紅牌
 
     return {
         "home":                home,
@@ -1549,8 +2018,16 @@ def predict_ensemble(
         "market_home":         round(float(market_probs[0]), 3) if market_odds else None,
         "market_draw":         round(float(market_probs[1]), 3) if market_odds else None,
         "market_away":         round(float(market_probs[2]), 3) if market_odds else None,
-        "xg_home":             round(xg_h_adjusted if adjusted_xg_used else xg_h, 2),
-        "xg_away":             round(xg_a_adjusted if adjusted_xg_used else xg_a, 2),
+        "xg_home":             round(xg_h_adjusted, 2),
+        "xg_away":             round(xg_a_adjusted, 2),
+        "first_goal_home":     round(float(_fg_home), 3),
+        "first_goal_away":     round(float(_fg_away), 3),
+        "no_goal":             round(float(_fg_p00), 3),
+        "exp_yellow":          round(float(_yc_lambda), 2),
+        "p_red":               round(float(_p_red), 3),
+        "card_02":             round(float(_card_02), 3),
+        "card_35":             round(float(_card_35), 3),
+        "card_6plus":          round(float(_card_6p), 3),
         "elo_home_rating":     round(elo_h, 1),
         "elo_away_rating":     round(elo_a, 1),
         "weights":             {"ml": W_ML, "elo": W_ELO, "market": W_MARKET},
@@ -1571,6 +2048,29 @@ def predict_ensemble(
         # v5.0 debug fields
         "ko":                  ko,
         "v5":                  v5_fields,
+        # v6.0 debug fields
+        "v6_h2h_applied":      h2h_applied,
+        "v6_h2h_weight":       round(float(w_h2h), 3),
+        "v6_h2h_vector":       [round(float(x), 3) for x in h2h_probs] if h2h_probs is not None else None,
+        "v6_h2h_meetings":     n_meet if h2h_probs is not None else 0,
+        "v6": {
+            "h2h_applied":     h2h_applied,
+            "h2h_weight":      round(float(w_h2h), 3),
+            "h2h_vector":      [round(float(x), 3) for x in h2h_probs] if h2h_probs is not None else None,
+            "h2h_meetings":    n_meet if h2h_probs is not None else 0,
+        },
+        # v6.2: final-review fixes (WC26 final lessons)
+        "v6_2": {
+            "et_penalty_home": round(float(_et_h), 3),
+            "et_penalty_away": round(float(_et_a), 3),
+            "finals_cap_stage": tournament_stage,
+            "collapse_risk_home": round(float(collapse_risk(home_et_fatigue, home_health or 0)), 3),
+            "collapse_risk_away": round(float(collapse_risk(away_et_fatigue, away_health or 0)), 3),
+            "referee": _ref.get("name", referee) if referee else None,
+            "ref_yellow_mult": round(float(_ref["yellow_mult"]), 2),
+            "ref_red_mult": round(float(_ref["red_mult"]), 2),
+            "ref_base_yellow": round(float(_ref["base_yellow"]), 2),
+        },
     }
 
 

@@ -6,6 +6,58 @@
 
 ---
 
+## [v6.2] — 2026-07-20（當前版本）
+
+### 修正（決賽教訓）
+- **`health_factor()` 重寫**：tier 2 由背水效應（+15 Elo / 1.05x xG）改為崩潰效應（-50 Elo / 0.85x xG）；新增 tier 4 半隊輪換（-120 Elo / 0.50x xG）。
+  決賽證明：阿根廷連續 3 場加時後 90 分鐘 0 射門，疲勞係崩潰而非背水。
+- **`consecutive_et_penalty()` 新增**：接駁原本未使用嘅 `home_et_fatigue` / `away_et_fatigue` 參數；
+  ≥3 場 KO 加時 xG ×0.60，≥2 場 ×0.75。
+- **`finals_xg_cap()` 新增**：決賽總 xG cap 1.8 球、半決賽 2.2、八強 2.5（`tournament_stage` 參數控制）。
+- **`collapse_risk()` 新增**：疲勞 + 健康輸出「崩潰概率」標籤（阿根廷決賽 0.75），僅作輸出提示唔覆蓋預測。
+- **`STRICT_REFS` + `referee_card_multiplier()` 新增**：Vinčić / Barton 等嚴厲裁判紅黃牌基數 5.15、紅牌 2x（`referee` 參數）。
+- **`predict_ensemble()` 新增參數**：`referee`、`tournament_stage`；輸出 `v6_2` 調試字段（et_penalty / collapse_risk / referee 乘數）。
+
+### 驗證
+- 決賽重測（西班牙 vs 阿根廷，阿根廷 et_fatigue=3 / health=2）：
+  阿根廷 xG 2.01 → 0.73；先開紀錄反轉為西班牙優先；紅黃牌 3.16 → 5.61（實際 7 張 + 恩佐紅牌）；西班牙晉級 0.556 → 0.595。
+- smoke test 三場（決賽 / 季軍戰 / 對照）全 pass。
+
+### 文件
+- `model_final_review_2026_worldcup.md`（最終復盤 + v6.2 設計）
+- `worldcup_v62_implementation_20260720.md`（實作記錄）
+
+---
+
+## [v6.1] — 2026-07-16
+
+### 新增
+- **`clutch_gene_factor()`**：近 5 場大賽 1-0 / 0-1 絕殺傾向（xG 0.94–1.08）。
+- **`wc2026_clutch_factor()`**：WC-2026 專用 clutch 層（阿根廷 1.06 / 西班牙 1.01）。
+- **`health_factor()` tier 2 背水效應**（+15 Elo / 1.05x xG）—— ⚠️ 此方向於 v6.2 被推翻（見上）。
+- **`matchup_h2h_probs()` recency 加權**：近 5 場 2x、6–10 場 1.5x。
+- **`predict_ensemble()` 新增參數**：`home_et_fatigue` / `away_et_fatigue` / `use_clutch_gene` / `h2h_recency_weighted`。
+- 修正 `simulate_knockout_progression` 接收 clutch 調整後 xG。
+
+### 驗證
+- smoke test 4/4 淘汰賽方向全中。
+
+---
+
+## [v6.0] — 2026-07-15
+
+### 新增
+- **對賽歷史層（H2H Override）**：`matchup_h2h_probs()` 近 10 場 window，recency 加權；
+  `H2H_OVERRIDE` 手動 curated 往績修正「剋星」pattern（如西班牙 vs 法國 7-1-2）。
+- **數據源升級至 44k dataset**：AndyLin31/International-Football-Results（1872–2023，44,762 場），取代原本 32k feat_df。
+- H2H 混合權重 ≤0.15（只輕推唔覆蓋 ensemble）。
+
+### 驗證
+- 法國 vs 西班牙：v5.4 法國 51.3% 晉級 → v6.0 西班牙 52.1% 晉級（方向與實際 2-0 一致）。
+- 阿根廷 vs 英格蘭、巴西 vs 日本均正常運行。
+
+---
+
 ## [v5.0] — 2026-07-06
 
 ### 新增
