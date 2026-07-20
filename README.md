@@ -1,43 +1,76 @@
-# worldcup-predictor 鈥?World Cup 2026 AI Match Prediction Engine
+# worldcup-predictor — World Cup 2026 AI Match Prediction Engine
 
-**Elo + XGBoost + Market Odds Ensemble**, 寰炲皬绲勮辰鍒版窐姹拌辰锛屾柟鍚戞纰虹巼 **73.3%**锛?0 鍫村闅涙瘮璩介璀夛級銆?
-> **鏈€鏂扮増鏈細v6.2** 鈥?姹鸿辰鏁欒〒淇锛堝穿娼版晥鎳夈€侀€ｇ簩鍔犳檪鎳茬桨銆佸毚鍘茶鍒ゃ€佹焙璩?xG cap锛?> 瑭宠 [CHANGELOG.md](CHANGELOG.md)
+**Elo + XGBoost + Market Odds Ensemble**, 從小組賽到淘汰賽,方向正確率 **73.3%**（30 場實際比賽驗證）。
+
+> **最新版本:v6.2** — 決賽教訓修正（崩潰效應、連續加時懲罰、嚴厲裁判、決賽 xG cap）
+> 詳見 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
-## 馃彈锔?鏋舵
+## 🏗️ 架構
 
 ```
-                      鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                      鈹?   Data Layer      鈹?                      鈹? The Odds API      鈹?                      鈹? 44k Dataset       鈹?                      鈹? 绔跺僵 SP (婢冲)     鈹?                      鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                               鈹?                      鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈻尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                      鈹?  Analysis Core    鈹?                      鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?     鈹?                      鈹? 鈹?XGBoost  鈹?15%  鈹?鈫?KO 妯″紡
-                      鈹? 鈹?Elo V3   鈹?20%  鈹?                      鈹? 鈹?Market   鈹?65%  鈹?                      鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?     鈹?                      鈹?鈹屸攢鈹€ v6.0 H2H 鈹€鈹€鈹€鈹€鈹?鈹?                      鈹?鈹?  44k 寰€绺惧堡   鈹?鈹?                      鈹?鈹溾攢鈹€ v6.1 Clutch 鈹€鈹?鈹?                      鈹?鈹?  绲曟鍩哄洜     鈹?鈹?                      鈹?鈹斺攢鈹€ v6.2 淇 鈹€鈹€鈹€鈹?鈹?                      鈹?   宕╂桨鏁堟噳       鈹?                      鈹?   鍔犳檪鎳茬桨       鈹?                      鈹?   鍤村幉瑁佸垽       鈹?                      鈹?   姹鸿辰 xG cap    鈹?                      鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                               鈹?                      鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈻尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?                      鈹?  Output Layer     鈹?                      鈹? HTML Reports      鈹?                      鈹? 绔跺僵鎺ㄨ枽鏍煎紡       鈹?                      鈹? TEMP-QUIZ 娆勪綅    鈹?                      鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?```
+                      ┌────────────────────┐
+                      │    Data Layer      │
+                      │  The Odds API      │
+                      │  44k Dataset       │
+                      │  競彩 SP (澳客)     │
+                      └────────┬───────────┘
+                               │
+                      ┌────────▼───────────┐
+                      │   Analysis Core    │
+                      │  ┌──────────┐      │
+                      │  │ XGBoost  │ 15%  │ ← KO 模式
+                      │  │ Elo V3   │ 20%  │
+                      │  │ Market   │ 65%  │
+                      │  └──────────┘      │
+                      │ ┌── v6.0 H2H ────┐ │
+                      │ │   44k 往績層   │ │
+                      │ ├── v6.1 Clutch ─┤ │
+                      │ │   絕殺基因     │ │
+                      │ └── v6.2 修正 ───┘ │
+                      │    崩潰效應       │
+                      │    加時懲罰       │
+                      │    嚴厲裁判       │
+                      │    決賽 xG cap    │
+                      └────────┬───────────┘
+                               │
+                      ┌────────▼───────────┐
+                      │   Output Layer     │
+                      │  HTML Reports      │
+                      │  競彩推薦格式       │
+                      │  TEMP-QUIZ 欄位    │
+                      └────────────────────┘
+```
 
 ---
 
-## 馃攽 API 瑷疆
+## 🔑 API 設置
 
-鏈爡鐩渶瑕佷互涓嬪厤璨?API Key 鍏堝彲浠ユ甯搁亱琛岋細
+本項目需要以下免費 API Key 先可以正常運行:
 
-| API | 鐢ㄩ€?| 鐢宠珛閫ｇ祼 |
+| API | 用途 | 申請連結 |
 |:----|:----|:-------|
-| **The Odds API** | 鍗虫檪甯傚牬璩犵巼 | https://the-odds-api.com/#get-access |
+| **The Odds API** | 即時市場賠率 | https://the-odds-api.com/#get-access |
 
-灏?Key 濉叆 `.env` 妾旀锛堝彲瑜囪＝ `.env.example`锛夛細
+將 Key 填入 `.env` 檔案（可複製 `.env.example`）:
 
 ```bash
 cp .env.example .env
-# 鐒跺緦绶ㄨ集 .env 濉叆浣犵殑 API Key
+# 然後編輯 .env 填入你的 API Key
 ```
 
 ---
 
-## 馃殌 蹇€熼枊濮?
+## 🚀 快速開始
+
 ```bash
 pip install -r requirements.txt
 cd src
-python predictor.py             # 闋愯ō demo 妯″紡
+python predictor.py             # 預設 demo 模式
 ```
 
-### 闋愭脯鍠牬姣旇辰
+### 預測單場比賽
 
 ```python
 from predictor import predict_ensemble, EloRatingSystem
@@ -51,97 +84,109 @@ result = predict_ensemble(
     elo, model, feat_df,
     market_odds={"h2h_home": 2.35, "h2h_draw": 3.20, "h2h_away": 3.10},
     is_knockout=True,
-    # v6.2 鍙冩暩
-    away_et_fatigue=3,      # 闃挎牴寤烽€ｇ簩 3 鍫?KO 鍔犳檪
-    away_health=2,          # 鐤插嫗
-    referee="Vin膷i膰",       # 鍤村幉瑁佸垽
+    # v6.2 參數
+    away_et_fatigue=3,      # 阿根廷連續 3 場 KO 加時
+    away_health=2,          # 疲勞
+    referee="Vinčić",       # 嚴厲裁判
     tournament_stage="final",
 )
 
 print(f"xG: {result['xg_home']} vs {result['xg_away']}")
-print(f"鏅夌礆: H {result['ko']['advance_home']} A {result['ko']['advance_away']}")
-print(f"闋愭湡榛冪墝: {result['exp_yellow']}")
-print(f"宕╂桨棰ㄩ毆: {result['v6_2']['collapse_risk_away']}")
+print(f"晉級: H {result['ko']['advance_home']} A {result['ko']['advance_away']}")
+print(f"預期黃牌: {result['exp_yellow']}")
+print(f"崩潰風險: {result['v6_2']['collapse_risk_away']}")
 ```
 
 ---
 
-## 馃搳 妯″瀷婕旈€?
-| 鐗堟湰 | 鏃ユ湡 | 鏍稿績鏀归€?|
+## 📊 模型演進
+
+| 版本 | 日期 | 核心改進 |
 |:-----|:-----|:---------|
-| **v6.2** | 2026-07-20 | 姹鸿辰鏁欒〒淇锛氬穿娼版晥鎳夈€侀€ｇ簩鍔犳檪鎳茬桨銆佸毚鍘茶鍒ゃ€佹焙璩?xG cap |
-| **v6.1** | 2026-07-16 | Clutch gene锛堢禃娈哄熀鍥狅級銆乺ecency H2H |
-| **v6.0** | 2026-07-15 | 灏嶈辰姝峰彶灞わ紙44k dataset锛夈€丠2H override |
-| **v5.4** | 2026-07-12 | Health factor銆丒lo 娈樺樊鏍℃銆佹法鍕濈悆鍋忕Щ |
-| **v5.0** | 2026-07-06 | 瀹氭€у垎鏋愬堡锛堝偡鐥呫€佸搧鐗屾孩鍍广€侀槻瀹堛€佹捣鎷斻€佹埌鎰忥級 |
-| **v4.0** | 2026-06-15 | Ensemble 鏋舵銆丏raw calibration |
-| **v3.0** | 2026-06-14 | XGBoost 妯″瀷瑷撶反 |
+| **v6.2** | 2026-07-20 | 決賽教訓修正:崩潰效應、連續加時懲罰、嚴厲裁判、決賽 xG cap |
+| **v6.1** | 2026-07-16 | Clutch gene（絕殺基因）、recency H2H |
+| **v6.0** | 2026-07-15 | 對賽歷史層（44k dataset）、H2H override |
+| **v5.4** | 2026-07-12 | Health factor、Elo 殘差校正、淨勝球偏移 |
+| **v5.0** | 2026-07-06 | 定性分析層（傷病、品牌溢價、防守、海拔、戰意） |
+| **v4.0** | 2026-06-15 | Ensemble 架構、Draw calibration |
+| **v3.0** | 2026-06-14 | XGBoost 模型訓練 |
 
 ---
 
-## 馃И 椹楄瓑绲愭灉
+## 🧪 驗證結果
 
-### 2026 涓栫晫鐩冨鎴拌〃鐝?
-| 闅庢 | 鍫存 | 鍛戒腑 | 鍛戒腑鐜?|
+### 2026 世界盃實戰表現
+
+| 階段 | 場次 | 命中 | 命中率 |
 |:-----|:----:|:----:|:------:|
-| 灏忕祫璩?| 19 | 15 | 78.9% |
-| 娣樻卑璩?| 11 | 7 | 63.6% |
-| **绺借▓** | **30** | **22** | **73.3%** |
+| 小組賽 | 19 | 15 | 78.9% |
+| 淘汰賽 | 11 | 7 | 63.6% |
+| **總計** | **30** | **22** | **73.3%** |
 
-### v6.2 姹鸿辰閲嶆脯锛堣タ鐝墮 vs 闃挎牴寤凤級
+### v6.2 決賽重測（西班牙 vs 阿根廷）
 
-| 鎸囨 | v6.1 | v6.2 | 瀵﹂殯 |
+| 指標 | v6.1 | v6.2 | 實際 |
 |:-----|:----:|:----:|:----:|
-| 闃挎牴寤?xG | 2.01 | **0.73** | 0 灏勯杸 鉁?|
-| 鍏堥枊绱€閷?| 闃挎牴寤?| **瑗跨彮鐗?* | 瑗跨彮鐗?鉁?|
-| 闋愭湡榛冪墝 | 3.16 | **5.61** | 7+ 鉁?|
-| 绱呯墝姒傜巼 | 0.177 | **0.443** | 鎭╀綈绱呯墝 鉁?|
+| 阿根廷 xG | 2.01 | **0.73** | 0 射門 ✓ |
+| 先開紀錄 | 阿根廷 | **西班牙** | 西班牙 ✓ |
+| 預期黃牌 | 3.16 | **5.61** | 7+ ✓ |
+| 紅牌概率 | 0.177 | **0.443** | 恩佐紅牌 ✓ |
 
 ---
 
-## 馃搧 灏堟绲愭
+## 📁 專案結構
 
 ```
 worldcup-predictor/
-鈹溾攢鈹€ src/
-鈹?  鈹溾攢鈹€ predictor.py        鈫?涓绘ā鍨嬶紙v6.2锛?鈹?  鈹溾攢鈹€ daily_predict.py    鈫?姣忔棩闋愭脯娴佹按绶?鈹?  鈹斺攢鈹€ rebuild_elo.py      鈫?Elo 閲嶅缓鑵虫湰
-鈹溾攢鈹€ models/
-鈹?  鈹溾攢鈹€ elo_v3.joblib       鈫?Elo 瑭曞垎绯荤当
-鈹?  鈹斺攢鈹€ xgb_weighted.joblib 鈫?XGBoost 妯″瀷
-鈹溾攢鈹€ data/
-鈹?  鈹斺攢鈹€ (璩囨枡闆嗭紝闇€鑷涓嬭級)
-鈹溾攢鈹€ docs/                   鈫?鏂囨獢
-鈹溾攢鈹€ CHANGELOG.md            鈫?鐗堟湰璁婃洿瑷橀寗
-鈹斺攢鈹€ README.md
+├── src/
+│   ├── predictor.py        ← 主模型（v6.2）
+│   ├── daily_predict.py    ← 每日預測流水線
+│   └── rebuild_elo.py      ← Elo 重建腳本
+├── models/
+│   ├── elo_v3.joblib       ← Elo 評分系統
+│   └── xgb_weighted.joblib ← XGBoost 模型
+├── data/
+│   └── (資料集,需自行下載)
+├── docs/                   ← 文檔
+├── CHANGELOG.md            ← 版本變更記錄
+└── README.md
 ```
 
 ---
 
-## 馃敩 闂滈嵉鍑芥暩
+## 🔬 關鍵函數
 
 ### `predict_ensemble()`
 
-鏍稿績闋愭脯鍑芥暩锛屾暣鍚?XGBoost銆丒lo銆佸競鍫磋碃鐜囦笁灞ゃ€?
-**v6.2 鏂板鍙冩暩锛?*
-- `referee` 鈥?瑁佸垽鍚嶇ū锛圴in膷i膰 / Barton锛?- `tournament_stage` 鈥?璩戒簨闅庢锛坒inal / semi / quarter锛?- `home_et_fatigue` / `away_et_fatigue` 鈥?閫ｇ簩鍔犳檪鍫存
-- `home_health` / `away_health` 鈥?鐞冮殜鍋ュ悍鐙€鎱嬶紙0-4锛?
-**杓稿嚭娆勪綅锛?*
-- `ensemble_home/draw/away` 鈥?90 鍒嗛悩姒傜巼
-- `xg_home/xg_away` 鈥?鏈熸湜鍏ョ悆
-- `ko` 鈥?娣樻卑璩介€茬▼锛圗T/PK 姒傜巼锛?- `exp_yellow` / `p_red` 鈥?绱呴粌鐗岄爯娓?- `v6_2` 鈥?v6.2 瑾胯│瀛楁锛堝穿娼伴ⅷ闅€佸姞鏅傛嚥缃般€佽鍒や箻鏁革級
+核心預測函數,整合 XGBoost、Elo、市場賠率三層。
+
+**v6.2 新增參數:**
+- `referee` — 裁判名稱（Vinčić / Barton）
+- `tournament_stage` — 賽事階段（final / semi / quarter）
+- `home_et_fatigue` / `away_et_fatigue` — 連續加時場次
+- `home_health` / `away_health` — 球隊健康狀態（0-4）
+
+**輸出欄位:**
+- `ensemble_home/draw/away` — 90 分鐘概率
+- `xg_home/xg_away` — 期望入球
+- `ko` — 淘汰賽進程（ET/PK 概率）
+- `exp_yellow` / `p_red` — 紅黃牌預測
+- `v6_2` — v6.2 調試字段（崩潰風險、加時懲罰、裁判乘數）
 
 ---
 
-## 馃摑 License
+## 📝 License
 
-MIT License 鈥?瑭宠 [LICENSE](LICENSE)
+MIT License — 詳見 [LICENSE](LICENSE)
 
 ---
 
-## 馃檹 鑷磋瑵
+## 🙏 致謝
 
-- **The Odds API** 鈥?甯傚牬璩犵巼鏁告摎
-- **AndyLin31/International-Football-Results** 鈥?44k 姝峰彶璩芥灉鏁告摎闆?- **openfootball/worldcup.json** 鈥?涓栫晫鐩冭辰绋嬫暩鎿?
+- **The Odds API** — 市場賠率數據
+- **AndyLin31/International-Football-Results** — 44k 歷史賽果數據集
+- **openfootball/worldcup.json** — 世界盃賽程數據
+
 ---
 
-**Made with 馃 by william-lamg**
+**Made with 🦞 by william-lamg**
